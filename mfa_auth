@@ -1,0 +1,42 @@
+import boto3
+import pprint
+
+# This is as same as running below command on the console to get a temporary access credentials
+# aws sts get-session-token --serial-number <<MFA_DEVICE_ARN>> --token-code <<123456>>
+
+region = 'us-east-2'
+
+
+
+################
+##### AUTH #####
+################
+mfa_code = input("MFA code : ")
+client = boto3.client('sts')
+response = client.get_session_token(
+    DurationSeconds=900,
+    SerialNumber='arn:aws:iam::11111111111:mfa/captain.crunsh@staycrunch.com',
+    TokenCode=mfa_code
+)
+
+accessKeyId_tmp = response['Credentials']['AccessKeyId']
+secretAccessKey_tmp = response['Credentials']['SecretAccessKey']
+sessionToken_tmp = response['Credentials']['SessionToken']
+
+session = boto3.session.Session(aws_access_key_id = accessKeyId_tmp, aws_secret_access_key = secretAccessKey_tmp, aws_session_token = sessionToken_tmp, region_name=region)
+
+
+
+
+
+#####################################
+###### You got the session now ######
+##### Now do whatever you want ######
+#####################################
+
+client = session.client('ec2')
+demo = client.describe_instances(Filters=[{'Name': 'tag:Name', 'Values': ['EC2-name']}])
+pprint.pprint(demo)
+
+
+print('Work Completed!')
