@@ -1,7 +1,6 @@
 import boto3
 
 ec2 = session.resource('ec2')
-instances = ec2.instances.filter(Filters=[{'Name': 'instance-state-name', 'Values': ['running','stopped']}])
 volumes = ec2.volumes.filter()
 for vol in volumes:
     snapshot = ec2.create_snapshot(VolumeId=vol.id, Description='volid')
