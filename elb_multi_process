@@ -1,0 +1,40 @@
+#!/bin/bash
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin
+TIME=$(date +"%y-%m-%d %T")
+
+/bin/rm -rf /scripts/RDS
+/bin/cat /dev/null > /scripts/init.log
+
+##### Checking process 1/3 #####
+/bin/echo "[$TIME] Checking apache process status" >> /scripts/init.log 2>&1
+while [ -z $(/sbin/pidof -s "/usr/sbin/httpd") ]; do
+        echo "[$TIME] Waiting for apache process" >> /scripts/init.log 2>&1
+        sleep 1
+done
+/bin/echo "[$TIME] Apache is running. PID is $(pidof -s "/usr/sbin/httpd")" >> /scripts/init.log 2>&1
+
+##### Checking process 2/3 #####
+/bin/echo "[$TIME] Checking tomcat process status" >> /scripts/init.log 2>&1
+while [ -z $(/sbin/pidof -s "/usr/lib/jvm/jre/bin/java") ]; do
+        /bin/echo "[$TIME] Waiting for tomcat process" >> /scripts/init.log 2>&1
+        sleep 1
+done
+/bin/echo "[$TIME] Tomcat is running. PID is $(pidof -s "/usr/lib/jvm/jre/bin/java")" >> /scripts/init.log 2>&1
+
+##### Checking process 3/3 #####
+/bin/echo "[$TIME] Checking RDS connectivity" >> /scripts/init.log 2>&1
+/bin/touch /scripts/RDS
+while [ $(wc -c "/scripts/RDS" | awk '{print $1}') == 0 ]; do
+        /bin/echo -e '\035\nquit' | telnet joonho-rds-lottetest.c42r3qdql2z1.us-east-2.rds.amazonaws.com 3306 >> /scripts/RDS
+        /bin/echo "[$TIME] Waiting for RDS connection to be available" >> /scripts/init.log 2>&1
+        sleep 1
+done
+/bin/rm -rf /scripts/RDS
+/bin/echo "[$TIME] RDS is reachable." >> /scripts/init.log 2>&1
+
+/bin/echo "[$TIME] Copying healthcheck file." >> /scripts/init.log 2>&1
+/bin/cp /scripts/test.jsp /usr/share/tomcat/webapps/ROOT/test.jsp
+/bin/chown tomcat:tomcat /usr/share/tomcat/webapps/ROOT/test.jsp
+/bin/echo "[$TIME] Healthcheck file is set : $(ls /usr/share/tomcat/webapps/ROOT/test.jsp)" >> /scripts/init.log 2>&1
+
+/bin/echo "[$TIME] Initiation complete." >> /scripts/init.log 2>&1
