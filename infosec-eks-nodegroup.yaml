@@ -1,0 +1,565 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Amazon EKS - Node Group
+
+
+Mappings:
+  VersionMap:
+    v1.11:
+      HVM64: "ami-0c84b3f055cda1afb"
+      HVMG2: "ami-01db6bb089f6adfcf"
+      Version: "1.11"
+    v1.12:
+      HVM64: "ami-069f6a654a8795f72"
+      HVMG2: "ami-006549812c03748cb"
+      Version: "1.12"
+    v1.13:
+      HVM64: "ami-07fd7609df6c8e39b"
+      HVMG2: "ami-0730e699ed0118737"
+      Version: "1.13"
+
+
+
+Parameters:
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  EKSVersion:
+    Description: Version of EKS
+    Type: String
+    Default: v1.12
+    AllowedValues:
+      - v1.11
+      - v1.12
+      - v1.13
+
+  NodeInstanceType:
+    Description: EC2 instance type for the node instances
+    Type: String
+    Default: t3.medium
+    ConstraintDescription: Must be a valid EC2 instance type
+    AllowedValues:
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t2.xlarge
+      - t2.2xlarge
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - m3.medium
+      - m3.large
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.12xlarge
+      - m5.24xlarge
+      - c4.large
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.9xlarge
+      - c5.18xlarge
+      - i3.large
+      - i3.xlarge
+      - i3.2xlarge
+      - i3.4xlarge
+      - i3.8xlarge
+      - i3.16xlarge
+      - r3.xlarge
+      - r3.2xlarge
+      - r3.4xlarge
+      - r3.8xlarge
+      - r4.large
+      - r4.xlarge
+      - r4.2xlarge
+      - r4.4xlarge
+      - r4.8xlarge
+      - r4.16xlarge
+      - x1.16xlarge
+      - x1.32xlarge
+      - p2.xlarge
+      - p2.8xlarge
+      - p2.16xlarge
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+      - p3dn.24xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.12xlarge
+      - r5.24xlarge
+      - r5d.large
+      - r5d.xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.12xlarge
+      - r5d.24xlarge
+      - z1d.large
+      - z1d.xlarge
+      - z1d.2xlarge
+      - z1d.3xlarge
+      - z1d.6xlarge
+      - z1d.12xlarge
+
+  NodeAutoScalingGroupMinSize:
+    Description: Minimum size of Node Group ASG.
+    Type: Number
+    Default: 1
+
+  NodeAutoScalingGroupMaxSize:
+    Description: Maximum size of Node Group ASG. Set to at least 1 greater than NodeAutoScalingGroupDesiredCapacity.
+    Type: Number
+    Default: 4
+
+  NodeAutoScalingGroupDesiredCapacity:
+    Description: Desired capacity of Node Group ASG.
+    Type: Number
+    Default: 3
+
+  NodeVolumeSize:
+    Description: Node volume size
+    Type: Number
+    Default: 20
+
+  BootstrapArguments:
+    Description: Arguments to pass to the bootstrap script. See files/bootstrap.sh in https://github.com/awslabs/amazon-eks-ami
+    Type: String
+    Default: ""
+
+
+
+Metadata:
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: EKS Cluster
+      - Label:
+          default: Worker Node Configuration
+        Parameters:
+          - NodeAutoScalingGroupMinSize
+          - NodeAutoScalingGroupDesiredCapacity
+          - NodeAutoScalingGroupMaxSize
+          - NodeInstanceType
+          - NodeVolumeSize
+          - KeyName
+          - BootstrapArguments
+      - Label:
+          default: Worker Network Configuration
+
+Resources:
+
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: default
+  
+  ControlSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: CF-EKS-CLUSTER-CONTROL-SG-01
+      GroupDescription: Control SG
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.0.0/16
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 10.0.0.0/16
+
+  SubnetPUB01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: "ap-northeast-2a"
+
+  SubnetPUB02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: "ap-northeast-2c"
+
+  SubnetPRV01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: "ap-northeast-2a"
+
+  SubnetPRV02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: "ap-northeast-2c"
+
+  SubnetDB01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.5.0/24
+      AvailabilityZone: "ap-northeast-2a"
+  
+  SubnetDB02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      CidrBlock: 10.0.6.0/24
+      AvailabilityZone: "ap-northeast-2c"
+
+  MainIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CF-EKS-IGW
+
+  MainIGWAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: MainVPC
+      InternetGatewayId:
+        Ref: MainIGW
+
+  NATEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  MainNAT:
+    Type: AWS::EC2::NatGateway
+    Properties:
+
+      AllocationId:
+        Fn::GetAtt:
+        - NATEIP
+        - AllocationId
+      SubnetId:
+        Ref: SubnetPRV01
+
+  PubRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: MainVPC
+
+  PubRTAssociation01:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetPUB01
+      RouteTableId:
+        Ref: PubRT
+
+  PubRTAssociation02:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetPUB02
+      RouteTableId:
+        Ref: PubRT
+
+  PubRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PubRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: MainIGW
+
+  PvtRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: MainVPC
+
+  PvtRTAssociation01:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetPRV01
+      RouteTableId:
+        Ref: PvtRT
+
+  PvtRTAssociation02:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetPRV02
+      RouteTableId:
+        Ref: PvtRT
+
+  PvtRTAssociation03:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetDB01
+      RouteTableId:
+        Ref: PvtRT
+
+  PvtRTAssociation04:
+     Type: AWS::EC2::SubnetRouteTableAssociation
+     Properties:
+      SubnetId:
+        Ref: SubnetDB02
+      RouteTableId:
+        Ref: PvtRT
+
+  PvtRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PvtRT
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: MainNAT
+
+  EKSROLE:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - 
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "eks.amazonaws.com" 
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  EKSCLUSTER:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: CF-EKS-CLUSTER-01
+      Version: !FindInMap
+        - VersionMap
+        - Ref: EKSVersion
+        - Version
+      RoleArn: !GetAtt EKSROLE.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !GetAtt ControlSG.GroupId
+        SubnetIds:
+          - Ref: SubnetPRV01
+          - Ref: SubnetPRV02
+
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref NodeInstanceRole
+
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  NodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for all nodes in the cluster
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: !Sub kubernetes.io/cluster/CF-EKS-CLUSTER-01
+          Value: owned
+
+  NodeSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow node to communicate with each other
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: -1
+      FromPort: 0
+      ToPort: 65535
+
+  NodeSecurityGroupFromControlPlaneIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+        - ControlSG
+        - GroupId
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+
+  ControlPlaneEgressToNodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroupEgress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow the cluster control plane to communicate with worker Kubelet and pods
+      GroupId:
+        Fn::GetAtt:
+        - ControlSG
+        - GroupId
+      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 1025
+      ToPort: 65535
+
+  NodeSecurityGroupFromControlPlaneOn443Ingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
+      GroupId: !Ref NodeSecurityGroup
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+        - ControlSG
+        - GroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
+  ControlPlaneEgressToNodeSecurityGroupOn443:
+    Type: AWS::EC2::SecurityGroupEgress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
+      GroupId:
+        Fn::GetAtt:
+        - ControlSG
+        - GroupId
+      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+
+  ClusterControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: NodeSecurityGroup
+    Properties:
+      Description: Allow pods to communicate with the cluster API Server
+      GroupId:
+        Fn::GetAtt:
+        - ControlSG
+        - GroupId
+      SourceSecurityGroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      ToPort: 443
+      FromPort: 443
+
+  NodeGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: CF-EKS-ASG-01
+      DesiredCapacity: !Ref NodeAutoScalingGroupDesiredCapacity
+      LaunchConfigurationName: !Ref NodeLaunchConfig
+      MinSize: !Ref NodeAutoScalingGroupMinSize
+      MaxSize: !Ref NodeAutoScalingGroupMaxSize
+      VPCZoneIdentifier:
+        - Ref: SubnetPRV01
+        - Ref: SubnetPRV02
+      Tags:
+        - Key: Name
+          Value: !Sub CF-EKS-CLUSTER-01-CF-EKS-ASG-01-Node
+          PropagateAtLaunch: true
+        - Key: !Sub kubernetes.io/cluster/CF-EKS-CLUSTER-01
+          Value: owned
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: 1
+        MinInstancesInService: !Ref NodeAutoScalingGroupDesiredCapacity
+        PauseTime: PT5M
+
+  NodeLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref NodeInstanceProfile
+      ImageId: !FindInMap
+        - VersionMap
+        - Ref: EKSVersion
+        - HVM64
+      InstanceType: !Ref NodeInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref NodeSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref NodeVolumeSize
+            VolumeType: gp2
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            set -o xtrace
+            /etc/eks/bootstrap.sh CF-EKS-CLUSTER-01 ${BootstrapArguments}
+            /opt/aws/bin/cfn-signal --exit-code $? \
+                     --stack  ${AWS::StackName} \
+                     --resource NodeGroup  \
+                     --region ${AWS::Region}
+
+Outputs:
+
+  NodeInstanceRole:
+    Description: The node instance role
+    Value: !GetAtt NodeInstanceRole.Arn
+
+  NodeSecurityGroup:
+    Description: The security group for the node group
+    Value: !Ref NodeSecurityGroup
